@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	cache "github.com/victorspringer/http-cache"
 	memory "github.com/victorspringer/http-cache/adapter/memory"
 	"go.uber.org/zap"
+	"gopkg.in/inf.v0"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -20,6 +23,7 @@ import (
 	rest "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 	metrics "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
@@ -96,9 +100,185 @@ func (m *MetricsHolder) CreateHandler() http.HandlerFunc {
 			w.Write([]byte(k))
 			w.Write([]byte(" "))
 			w.Write([]byte(fmt.Sprintf("%f", v.Value)))
+			w.Write([]byte(" "))
+			w.Write([]byte(fmt.Sprintf("%s", v.Time)))
 			w.Write([]byte("\n"))
 		}
 	}
+}
+
+// MetricsExtracor creates metrics out of Kubernetes objects
+type MetricsExtracor struct {
+	channel   chan interface{}
+	holder    *MetricsHolder
+	resources map[string]float64
+}
+
+// NewMetricsExtracor constructs a MetricsExtracor
+func NewMetricsExtracor(holder *MetricsHolder) *MetricsExtracor {
+	channel := make(chan interface{})
+	m := &MetricsExtracor{
+		channel:   channel,
+		holder:    holder,
+		resources: make(map[string]float64),
+	}
+	go func() {
+		done := false
+		for !done {
+			select {
+			case o := <-channel:
+				switch v := o.(type) {
+				case apiv1.Pod:
+					//fmt.Printf("*** Pod received %+v\n", v)
+					m.savePodSpecs(v)
+					m.propagatePodSpecs(v)
+				case metricsv1beta1.PodMetrics:
+					//fmt.Printf("*** PodMetrics received %+v\n", v)
+					m.propagatePodMetrics(v)
+				}
+			}
+		}
+	}()
+	return m
+}
+
+func (m *MetricsExtracor) savePodSpecs(pod apiv1.Pod) {
+	for _, con := range pod.Spec.Containers {
+		containerID := pod.Name + "_" + con.Name
+		m.resources[containerID+"_req_mem"] = decToFloat64(con.Resources.Requests.Memory().AsDec())
+		m.resources[containerID+"_limit_mem"] = decToFloat64(con.Resources.Limits.Memory().AsDec())
+		m.resources[containerID+"_req_cpu"] = decToFloat64(con.Resources.Requests.Cpu().AsDec())
+		m.resources[containerID+"_limit_cpu"] = decToFloat64(con.Resources.Limits.Cpu().AsDec())
+		m.resources[containerID+"_req_stor"] = decToFloat64(con.Resources.Requests.StorageEphemeral().AsDec())
+		m.resources[containerID+"_limit_stor"] = decToFloat64(con.Resources.Limits.StorageEphemeral().AsDec())
+	}
+}
+
+func (m *MetricsExtracor) propagatePodSpecs(pod apiv1.Pod) {
+	for _, con := range pod.Spec.Containers {
+		extras := make(map[string]string)
+		extras["pod-name"] = pod.Name
+		extras["container-name"] = con.Name
+
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_MEMORY_REQURED" + renderLabels(pod.Labels, extras),
+			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Resources.Requests.Memory().AsDec()),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_MEMORY_LIMIT" + renderLabels(pod.Labels, extras),
+			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Resources.Limits.Memory().AsDec()),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_CPU_REQURED" + renderLabels(pod.Labels, extras),
+			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Resources.Requests.Cpu().AsDec()),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_CPU_LIMIT" + renderLabels(pod.Labels, extras),
+			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Resources.Limits.Cpu().AsDec()),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_STORAGE_REQURED" + renderLabels(pod.Labels, extras),
+			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Resources.Requests.StorageEphemeral().AsDec()),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_STORAGE_LIMIT" + renderLabels(pod.Labels, extras),
+			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Resources.Limits.StorageEphemeral().AsDec()),
+		}
+	}
+}
+
+func (m *MetricsExtracor) propagatePodMetrics(metrics metricsv1beta1.PodMetrics) {
+	for _, con := range metrics.Containers {
+		containerID := metrics.Name + "_" + con.Name
+		extras := make(map[string]string)
+		extras["pod-name"] = metrics.Name
+		extras["container-name"] = con.Name
+
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_MEMORY_USAGE" + renderLabels(metrics.Labels, extras),
+			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Usage.Memory().AsDec()),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_MEMORY_USAGE_REQUIRED" + renderLabels(metrics.Labels, extras),
+			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Usage.Memory().AsDec()) / getOrDef(m.resources, containerID+"_req_mem", 0),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_MEMORY_USAGE_LIMIT" + renderLabels(metrics.Labels, extras),
+			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Usage.Memory().AsDec()) / getOrDef(m.resources, containerID+"_limit_mem", 0),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_CPU_USAGE" + renderLabels(metrics.Labels, extras),
+			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Usage.Cpu().AsDec()),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_CPU_USAGE_REQUIRED" + renderLabels(metrics.Labels, extras),
+			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Usage.Cpu().AsDec()) / getOrDef(m.resources, containerID+"_req_cpu", 0),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_CPU_USAGE_LIMIT" + renderLabels(metrics.Labels, extras),
+			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Usage.Cpu().AsDec()) / getOrDef(m.resources, containerID+"_limit_cpu", 0),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_STORAGE_USAGE" + renderLabels(metrics.Labels, extras),
+			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Usage.StorageEphemeral().AsDec()),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_STORAGE_USAGE_REQUIRED" + renderLabels(metrics.Labels, extras),
+			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Usage.StorageEphemeral().AsDec()) / getOrDef(m.resources, containerID+"_req_stor", 0),
+		}
+		m.holder.Channel() <- &Reading{
+			Key:   "PS_STORAGE_USAGE_LIMIT" + renderLabels(metrics.Labels, extras),
+			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
+			Type:  Instant,
+			Value: decToFloat64(con.Usage.StorageEphemeral().AsDec()) / getOrDef(m.resources, containerID+"_limit_stor", 0),
+		}
+	}
+}
+
+func getOrDef(m map[string]float64, key string, def float64) float64 {
+	v, ok := m[key]
+	if !ok {
+		return def
+	}
+	return v
+}
+
+func decToFloat64(dec *inf.Dec) float64 {
+	return float64(dec.UnscaledBig().Int64()) /
+		math.Pow(10, float64(dec.Scale()))
+}
+
+// Channel returns channel on which this MetricsHolder accepts new readings
+func (m *MetricsExtracor) Channel() chan<- interface{} {
+	return m.channel
 }
 
 // Closer follows pod changes through the api
@@ -119,8 +299,8 @@ func ShovelList(lister Lister, sink chan<- interface{}, log *zap.Logger) Closer 
 					log.Error("Listing", zap.Error(err))
 				}
 				for _, v := range list {
-					fmt.Printf("NewListItem: %+v\n", v)
-					//sink <- v
+					//fmt.Printf("NewListItem: %+v\n", v)
+					sink <- v
 				}
 			case <-close:
 				done = true
@@ -174,7 +354,8 @@ func NewWatcher(watcher Watcher, sink chan<- interface{}, log *zap.Logger) Close
 							if err != nil {
 								log.Error("Converting object", zap.Error(err))
 							}
-							fmt.Printf("NewWatcher: %+v\n", object)
+							sink <- object
+							//fmt.Printf("NewWatcher: %+v\n", object)
 						}
 					case <-close:
 						done = true
@@ -223,21 +404,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	m := NewMetrics()
+	holder := NewMetrics()
+	extracor := NewMetricsExtracor(holder)
 
 	podConnector, err := NewPodWatcher(config, *namespace)
 	if err != nil {
 		logger.Error("Creating pod connector", zap.Error(err))
 		os.Exit(1)
 	}
-	NewWatcher(podConnector, m.Channel(), logger)
+	NewWatcher(podConnector, extracor.Channel(), logger)
 
 	metricsConnector, err := NewMetricsLister(config, *namespace)
 	if err != nil {
 		logger.Error("Creating metrics connector", zap.Error(err))
 		os.Exit(1)
 	}
-	ShovelList(metricsConnector, m.Channel(), logger)
+	ShovelList(metricsConnector, extracor.Channel(), logger)
 
 	memcached, err := memory.NewAdapter(
 		memory.AdapterWithAlgorithm(memory.LRU),
@@ -250,7 +432,7 @@ func main() {
 
 	cacheClient, err := cache.NewClient(
 		cache.ClientWithAdapter(memcached),
-		cache.ClientWithTTL(10*time.Minute),
+		cache.ClientWithTTL(10*time.Second),
 		cache.ClientWithRefreshKey("opn"),
 	)
 	if err != nil {
@@ -258,7 +440,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := http.HandlerFunc(m.CreateHandler())
+	handler := http.HandlerFunc(holder.CreateHandler())
 
 	http.Handle("/", cacheClient.Middleware(handler))
 	err = http.ListenAndServe(":8080", nil)
@@ -350,7 +532,7 @@ func usage(pod apiv1.Pod, labels map[string]string) []string {
 	return result
 }
 
-func render(name string, value string, time int64, labels ...map[string]string) string {
+func renderLabels(labels ...map[string]string) string {
 	var buffer bytes.Buffer
 	buffer.WriteString("{")
 	first := true
@@ -367,10 +549,7 @@ func render(name string, value string, time int64, labels ...map[string]string) 
 			buffer.WriteString("\"")
 		}
 	}
-	buffer.WriteString("} ")
-	buffer.WriteString(value)
-	buffer.WriteString(" ")
-	buffer.WriteString(fmt.Sprintf("%d", time))
+	buffer.WriteString("}")
 
 	return string(buffer.Bytes())
 }
