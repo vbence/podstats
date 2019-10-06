@@ -28,12 +28,12 @@ import (
 	metrics "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
-// MetricType distinguishes the kinds of metrics
-type MetricType int
+// ReadingType distinguishes the kinds of metrics
+type ReadingType int
 
 const (
 	// Counter represents a monotonous series where new values are added
-	Counter MetricType = iota + 1
+	Counter ReadingType = iota + 1
 
 	// Instant represents an instantenious value
 	Instant
@@ -44,7 +44,7 @@ type Reading struct {
 	Key   string
 	Value float64
 	Time  string
-	Type  MetricType
+	Type  ReadingType
 }
 
 // Accept returns a metric updated with the new reading
