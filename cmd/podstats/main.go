@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -109,18 +110,16 @@ func (m *MetricsHolder) CreateHandler() http.HandlerFunc {
 
 // MetricsExtracor creates metrics out of Kubernetes objects
 type MetricsExtracor struct {
-	channel   chan interface{}
-	holder    *MetricsHolder
-	resources map[string]float64
+	channel chan interface{}
+	holder  *MetricsHolder
 }
 
 // NewMetricsExtracor constructs a MetricsExtracor
 func NewMetricsExtracor(holder *MetricsHolder) *MetricsExtracor {
 	channel := make(chan interface{})
 	m := &MetricsExtracor{
-		channel:   channel,
-		holder:    holder,
-		resources: make(map[string]float64),
+		channel: channel,
+		holder:  holder,
 	}
 	go func() {
 		done := false
@@ -129,29 +128,14 @@ func NewMetricsExtracor(holder *MetricsHolder) *MetricsExtracor {
 			case o := <-channel:
 				switch v := o.(type) {
 				case apiv1.Pod:
-					//fmt.Printf("*** Pod received %+v\n", v)
-					m.savePodSpecs(v)
 					m.propagatePodSpecs(v)
 				case metricsv1beta1.PodMetrics:
-					//fmt.Printf("*** PodMetrics received %+v\n", v)
 					m.propagatePodMetrics(v)
 				}
 			}
 		}
 	}()
 	return m
-}
-
-func (m *MetricsExtracor) savePodSpecs(pod apiv1.Pod) {
-	for _, con := range pod.Spec.Containers {
-		containerID := pod.Name + "_" + con.Name
-		m.resources[containerID+"_req_mem"] = decToFloat64(con.Resources.Requests.Memory().AsDec())
-		m.resources[containerID+"_limit_mem"] = decToFloat64(con.Resources.Limits.Memory().AsDec())
-		m.resources[containerID+"_req_cpu"] = decToFloat64(con.Resources.Requests.Cpu().AsDec())
-		m.resources[containerID+"_limit_cpu"] = decToFloat64(con.Resources.Limits.Cpu().AsDec())
-		m.resources[containerID+"_req_stor"] = decToFloat64(con.Resources.Requests.StorageEphemeral().AsDec())
-		m.resources[containerID+"_limit_stor"] = decToFloat64(con.Resources.Limits.StorageEphemeral().AsDec())
-	}
 }
 
 func (m *MetricsExtracor) propagatePodSpecs(pod apiv1.Pod) {
@@ -161,37 +145,37 @@ func (m *MetricsExtracor) propagatePodSpecs(pod apiv1.Pod) {
 		extras["container-name"] = con.Name
 
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_MEMORY_REQURED" + renderLabels(pod.Labels, extras),
+			Key:   "PS_MEMORY_REQUEST_BYTES" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Requests.Memory().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_MEMORY_LIMIT" + renderLabels(pod.Labels, extras),
+			Key:   "PS_MEMORY_LIMIT_BYTES" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Limits.Memory().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_CPU_REQURED" + renderLabels(pod.Labels, extras),
+			Key:   "PS_CPU_REQUEST_BYTES" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Requests.Cpu().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_CPU_LIMIT" + renderLabels(pod.Labels, extras),
+			Key:   "PS_CPU_LIMIT_BYTES" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Limits.Cpu().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_STORAGE_REQURED" + renderLabels(pod.Labels, extras),
+			Key:   "PS_STORAGE_REQUEST_BYTES" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Requests.StorageEphemeral().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_STORAGE_LIMIT" + renderLabels(pod.Labels, extras),
+			Key:   "PS_STORAGE_LIMIT_BYTES" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix(), 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Limits.StorageEphemeral().AsDec()),
@@ -201,64 +185,27 @@ func (m *MetricsExtracor) propagatePodSpecs(pod apiv1.Pod) {
 
 func (m *MetricsExtracor) propagatePodMetrics(metrics metricsv1beta1.PodMetrics) {
 	for _, con := range metrics.Containers {
-		containerID := metrics.Name + "_" + con.Name
 		extras := make(map[string]string)
 		extras["pod-name"] = metrics.Name
 		extras["container-name"] = con.Name
 
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_MEMORY_USAGE" + renderLabels(metrics.Labels, extras),
+			Key:   "PS_MEMORY_USAGE_BYTES" + renderLabels(metrics.Labels, extras),
 			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Usage.Memory().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_MEMORY_USAGE_REQUIRED" + renderLabels(metrics.Labels, extras),
-			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
-			Type:  Instant,
-			Value: decToFloat64(con.Usage.Memory().AsDec()) / getOrDef(m.resources, containerID+"_req_mem", 0),
-		}
-		m.holder.Channel() <- &Reading{
-			Key:   "PS_MEMORY_USAGE_LIMIT" + renderLabels(metrics.Labels, extras),
-			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
-			Type:  Instant,
-			Value: decToFloat64(con.Usage.Memory().AsDec()) / getOrDef(m.resources, containerID+"_limit_mem", 0),
-		}
-		m.holder.Channel() <- &Reading{
-			Key:   "PS_CPU_USAGE" + renderLabels(metrics.Labels, extras),
+			Key:   "PS_CPU_USAGE_CORES" + renderLabels(metrics.Labels, extras),
 			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Usage.Cpu().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_CPU_USAGE_REQUIRED" + renderLabels(metrics.Labels, extras),
-			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
-			Type:  Instant,
-			Value: decToFloat64(con.Usage.Cpu().AsDec()) / getOrDef(m.resources, containerID+"_req_cpu", 0),
-		}
-		m.holder.Channel() <- &Reading{
-			Key:   "PS_CPU_USAGE_LIMIT" + renderLabels(metrics.Labels, extras),
-			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
-			Type:  Instant,
-			Value: decToFloat64(con.Usage.Cpu().AsDec()) / getOrDef(m.resources, containerID+"_limit_cpu", 0),
-		}
-		m.holder.Channel() <- &Reading{
-			Key:   "PS_STORAGE_USAGE" + renderLabels(metrics.Labels, extras),
+			Key:   "PS_STORAGE_USAGE_BYTES" + renderLabels(metrics.Labels, extras),
 			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Usage.StorageEphemeral().AsDec()),
-		}
-		m.holder.Channel() <- &Reading{
-			Key:   "PS_STORAGE_USAGE_REQUIRED" + renderLabels(metrics.Labels, extras),
-			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
-			Type:  Instant,
-			Value: decToFloat64(con.Usage.StorageEphemeral().AsDec()) / getOrDef(m.resources, containerID+"_req_stor", 0),
-		}
-		m.holder.Channel() <- &Reading{
-			Key:   "PS_STORAGE_USAGE_LIMIT" + renderLabels(metrics.Labels, extras),
-			Time:  strconv.FormatInt(metrics.Timestamp.Unix(), 10),
-			Type:  Instant,
-			Value: decToFloat64(con.Usage.StorageEphemeral().AsDec()) / getOrDef(m.resources, containerID+"_limit_stor", 0),
 		}
 	}
 }
@@ -543,7 +490,7 @@ func renderLabels(labels ...map[string]string) string {
 			} else {
 				first = false
 			}
-			buffer.WriteString(k)
+			buffer.WriteString(labelFor(k))
 			buffer.WriteString("=\"")
 			buffer.WriteString(v)
 			buffer.WriteString("\"")
@@ -552,4 +499,13 @@ func renderLabels(labels ...map[string]string) string {
 	buffer.WriteString("}")
 
 	return string(buffer.Bytes())
+}
+
+var (
+	invalidLabels  = regexp.MustCompile("[^a-zA-Z0-9_]")
+	leadUnderscore = regexp.MustCompile("^[_]+")
+)
+
+func labelFor(name string) string {
+	return string(leadUnderscore.ReplaceAll(invalidLabels.ReplaceAll([]byte(name), []byte("_")), []byte("")))
 }
