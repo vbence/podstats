@@ -101,8 +101,6 @@ func (m *MetricsHolder) CreateHandler() http.HandlerFunc {
 			w.Write([]byte(k))
 			w.Write([]byte(" "))
 			w.Write([]byte(fmt.Sprintf("%f", v.Value)))
-			w.Write([]byte(" "))
-			w.Write([]byte(fmt.Sprintf("%s", v.Time)))
 			w.Write([]byte("\n"))
 		}
 	}
