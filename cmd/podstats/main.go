@@ -143,37 +143,37 @@ func (m *MetricsExtracor) propagatePodSpecs(pod apiv1.Pod) {
 		extras["container-name"] = con.Name
 
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_MEMORY_REQUEST_BYTES" + renderLabels(pod.Labels, extras),
+			Key:   "ps_memory_request_bytes" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Requests.Memory().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_MEMORY_LIMIT_BYTES" + renderLabels(pod.Labels, extras),
+			Key:   "ps_memory_limit_bytes" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Limits.Memory().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_CPU_REQUEST_BYTES" + renderLabels(pod.Labels, extras),
+			Key:   "ps_cpu_request_bytes" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Requests.Cpu().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_CPU_LIMIT_BYTES" + renderLabels(pod.Labels, extras),
+			Key:   "ps_cpu_limit_bytes" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Limits.Cpu().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_STORAGE_REQUEST_BYTES" + renderLabels(pod.Labels, extras),
+			Key:   "ps_storage_request_bytes" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Requests.StorageEphemeral().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_STORAGE_LIMIT_BYTES" + renderLabels(pod.Labels, extras),
+			Key:   "ps_storage_limit_bytes" + renderLabels(pod.Labels, extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Limits.StorageEphemeral().AsDec()),
@@ -188,19 +188,19 @@ func (m *MetricsExtracor) propagatePodMetrics(metrics metricsv1beta1.PodMetrics)
 		extras["container-name"] = con.Name
 
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_MEMORY_USAGE_BYTES" + renderLabels(metrics.Labels, extras),
+			Key:   "ps_memory_usage_bytes" + renderLabels(metrics.Labels, extras),
 			Time:  strconv.FormatInt(metrics.Timestamp.Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Usage.Memory().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_CPU_USAGE_CORES" + renderLabels(metrics.Labels, extras),
+			Key:   "ps_cpu_usage_cores" + renderLabels(metrics.Labels, extras),
 			Time:  strconv.FormatInt(metrics.Timestamp.Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Usage.Cpu().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "PS_STORAGE_USAGE_BYTES" + renderLabels(metrics.Labels, extras),
+			Key:   "ps_storage_usage_bytes" + renderLabels(metrics.Labels, extras),
 			Time:  strconv.FormatInt(metrics.Timestamp.Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Usage.StorageEphemeral().AsDec()),
