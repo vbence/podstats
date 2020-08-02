@@ -282,6 +282,7 @@ func NewWatcher(watcher Watcher, sink chan<- interface{}, log *zap.Logger) Close
 					case e, open := <-events:
 						if !open {
 							log.Info("Watcher disconnected")
+							w.Stop()
 							break W
 						}
 
