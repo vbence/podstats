@@ -143,37 +143,37 @@ func (m *MetricsExtracor) propagatePodSpecs(pod apiv1.Pod) {
 		extras["container-name"] = con.Name
 
 		m.holder.Channel() <- &Reading{
-			Key:   "ps_memory_request_bytes" + renderLabels(pod.Labels, extras),
+			Key:   "ps_memory_request_bytes" + renderLabels(extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Requests.Memory().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "ps_memory_limit_bytes" + renderLabels(pod.Labels, extras),
+			Key:   "ps_memory_limit_bytes" + renderLabels(extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Limits.Memory().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "ps_cpu_request_cores" + renderLabels(pod.Labels, extras),
+			Key:   "ps_cpu_request_cores" + renderLabels(extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Requests.Cpu().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "ps_cpu_limit_cores" + renderLabels(pod.Labels, extras),
+			Key:   "ps_cpu_limit_cores" + renderLabels(extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Limits.Cpu().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "ps_storage_request_bytes" + renderLabels(pod.Labels, extras),
+			Key:   "ps_storage_request_bytes" + renderLabels(extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Requests.StorageEphemeral().AsDec()),
 		}
 		m.holder.Channel() <- &Reading{
-			Key:   "ps_storage_limit_bytes" + renderLabels(pod.Labels, extras),
+			Key:   "ps_storage_limit_bytes" + renderLabels(extras),
 			Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix() * 1000, 10),
 			Type:  Instant,
 			Value: decToFloat64(con.Resources.Limits.StorageEphemeral().AsDec()),
