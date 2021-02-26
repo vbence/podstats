@@ -27,22 +27,10 @@ import (
 	metrics "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
-// ReadingType distinguishes the kinds of metrics
-type ReadingType int
-
-const (
-	// Counter represents a monotonous series where new values are added
-	Counter ReadingType = iota + 1
-
-	// Instant represents an instantenious value
-	Instant
-)
-
 // Reading represents a single sensor reading, a value for a metric at a given time
 type Reading struct {
 	Value float64
 	Time  string
-	Type  ReadingType
 }
 
 // MetricsHolder represents a set of metrics in Prometheus's format
@@ -96,32 +84,26 @@ func extractPodSpecs(pods []apiv1.Pod) map[string]*Reading {
 
 			r["ps_memory_request_bytes"+renderLabels(pod.Labels, extras)] = &Reading{
 				Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix()*1000, 10),
-				Type:  Instant,
 				Value: decToFloat64(con.Resources.Requests.Memory().AsDec()),
 			}
 			r["ps_memory_limit_bytes"+renderLabels(pod.Labels, extras)] = &Reading{
 				Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix()*1000, 10),
-				Type:  Instant,
 				Value: decToFloat64(con.Resources.Limits.Memory().AsDec()),
 			}
 			r["ps_cpu_request_cores"+renderLabels(pod.Labels, extras)] = &Reading{
 				Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix()*1000, 10),
-				Type:  Instant,
 				Value: decToFloat64(con.Resources.Requests.Cpu().AsDec()),
 			}
 			r["ps_cpu_limit_cores"+renderLabels(pod.Labels, extras)] = &Reading{
 				Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix()*1000, 10),
-				Type:  Instant,
 				Value: decToFloat64(con.Resources.Limits.Cpu().AsDec()),
 			}
 			r["ps_storage_request_bytes"+renderLabels(pod.Labels, extras)] = &Reading{
 				Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix()*1000, 10),
-				Type:  Instant,
 				Value: decToFloat64(con.Resources.Requests.StorageEphemeral().AsDec()),
 			}
 			r["ps_storage_limit_bytes"+renderLabels(pod.Labels, extras)] = &Reading{
 				Time:  strconv.FormatInt(pod.GetCreationTimestamp().Unix()*1000, 10),
-				Type:  Instant,
 				Value: decToFloat64(con.Resources.Limits.StorageEphemeral().AsDec()),
 			}
 		}
@@ -141,17 +123,14 @@ func extractPodMetrics(allMetrics []metricsv1beta1.PodMetrics) map[string]*Readi
 
 			r["ps_memory_usage_bytes"+renderLabels(metrics.Labels, extras)] = &Reading{
 				Time:  strconv.FormatInt(metrics.Timestamp.Unix()*1000, 10),
-				Type:  Instant,
 				Value: decToFloat64(con.Usage.Memory().AsDec()),
 			}
 			r["ps_cpu_usage_cores"+renderLabels(metrics.Labels, extras)] = &Reading{
 				Time:  strconv.FormatInt(metrics.Timestamp.Unix()*1000, 10),
-				Type:  Instant,
 				Value: decToFloat64(con.Usage.Cpu().AsDec()),
 			}
 			r["ps_storage_usage_bytes"+renderLabels(metrics.Labels, extras)] = &Reading{
 				Time:  strconv.FormatInt(metrics.Timestamp.Unix()*1000, 10),
-				Type:  Instant,
 				Value: decToFloat64(con.Usage.StorageEphemeral().AsDec()),
 			}
 		}
