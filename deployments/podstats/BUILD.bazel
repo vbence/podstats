@@ -1,0 +1,9 @@
+genrule(
+    name = "podstats",
+    visibility = ["//visibility:public"],
+    outs = ["image.hash"],
+    srcs = glob(["*"]) + [
+	"//cmd/podstats:podstats",
+    ],
+    cmd = "sha1sum $(SRCS) | sha1sum | grep -hoE '[0-9a-f]+' >$(OUTS); date >>$(OUTS)",
+)
